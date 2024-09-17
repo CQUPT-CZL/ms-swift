@@ -10,7 +10,7 @@ from functools import partial, wraps
 from queue import Empty, Queue
 from tempfile import TemporaryDirectory
 from threading import Thread
-from typing import Any, Callable, Dict, Iterator, List, Mapping, Optional, Sequence, Set, Tuple, Union
+from typing import Any, Callable, Dict, Iterator, List, Optional, Set, Tuple, Union, Type
 
 import accelerate
 import multiprocess
@@ -26,7 +26,7 @@ from torch.nn import Linear, Module
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import Dataset, IterableDataset
 from tqdm.auto import tqdm
-from transformers import (GenerationConfig, PretrainedConfig, PreTrainedModel, PreTrainedTokenizerBase,
+from transformers import (GenerationConfig, PreTrainedModel, PreTrainedTokenizerBase,
                           StoppingCriteriaList, TextStreamer, trainer)
 from transformers.generation.streamers import BaseStreamer
 from transformers.utils import is_torch_npu_available
@@ -48,28 +48,6 @@ def download_files(url: str, local_path: str, cookies) -> None:
     with open(local_path, 'wb') as f:
         for data in tqdm(resp.iter_lines()):
             f.write(data)
-
-
-def download_dataset(model_id: str, files: List[str], force_download: bool = False) -> str:
-    assert isinstance(files, list)
-    url = f'http://www.modelscope.cn/api/v1/datasets/{model_id}/repo?Revision=master&FilePath={{fpath}}'
-    cache_dir = os.path.join(MS_CACHE_HOME, 'datasets', model_id, 'master')
-    local_dir = os.path.join(cache_dir, 'raw')
-    tmp_dir = os.path.join(cache_dir, 'tmp')
-    os.makedirs(local_dir, exist_ok=True)
-    os.makedirs(tmp_dir, exist_ok=True)
-    cookies = ModelScopeConfig.get_cookies()
-    with TemporaryDirectory(dir=tmp_dir) as temp_dir:
-        for remote_fpath in files:
-            url = url.format(fpath=remote_fpath)
-            temp_fpath = os.path.join(temp_dir, remote_fpath)
-            local_fpath = os.path.join(local_dir, remote_fpath)
-            if not force_download and os.path.exists(local_fpath):
-                continue
-            download_files(url, temp_fpath, cookies)
-            shutil.copy2(temp_fpath, local_fpath)
-
-    return local_dir
 
 
 def _get_max_memory(device_ids: List[int]) -> Dict[Union[int, str], int]:
@@ -106,11 +84,11 @@ def _sync_max_memory(max_memory: Dict[Union[int, str], int]) -> Dict[Union[int, 
     return new_max_memory
 
 
-def fetch_one(element: Union[Tuple, List, Set, Dict, Any]) -> Any:
+def fetch_one(element: Union[Tuple, List, Set, Dict, Any], type: Type = None) -> Any:
     if isinstance(element, (tuple, set, list)):
         for ele in element:
             out = fetch_one(ele)
-            if out:
+            if out and (type is None or isinstance(out, type)):
                 return out
     elif isinstance(element, dict):
         return fetch_one(list(element.values()))
@@ -499,23 +477,6 @@ def sort_by_max_length(llm_dataset: LLMDataset, num_dataset: int) -> LLMDataset:
     token_len = _get_token_len(llm_dataset)
     idx = heapq.nlargest(num_dataset, range(len(token_len)), key=lambda i: token_len[i])
     return llm_dataset.select(idx)
-
-
-def to_device(inputs: Any, device: torch.device) -> Any:
-    if callable(getattr(inputs, 'to', None)):
-        return inputs.to(device=device)
-
-    if isinstance(inputs, Mapping):
-        res = {}
-        for k, v in inputs.items():
-            res[k] = to_device(v, device)
-    elif isinstance(inputs, Sequence) and not isinstance(inputs, str):
-        res = []
-        for b in inputs:
-            res.append(to_device(b, device))
-    else:
-        res = inputs
-    return res
 
 
 class TokenListIteratorStreamer(BaseStreamer):
@@ -1004,7 +965,7 @@ class LLMIterableDataset(HfIterableDataset):
         )
         self.dataset = dataset
         self.max_retries = max_retries
-        from .dataset import standard_keys
+        from swift.llm.dataset.dataset import standard_keys
         dataset._ex_iterable.remove_columns = standard_keys & next(iter(dataset)).keys()
 
     def __iter__(self):
@@ -1026,62 +987,6 @@ class LLMIterableDataset(HfIterableDataset):
                     retries += 1
                     if retries >= self.max_retries:
                         raise e
-
-
-def get_max_model_len(config: PretrainedConfig, ignore_rope_scaling=False) -> Optional[int]:
-    INF = int(1e9)
-    max_model_len = INF
-    for k in ['language_config', 'llm_config', 'text_config']:
-        llm_config = getattr(config, k, None)
-        if llm_config is not None:
-            config = llm_config
-            break
-
-    possible_keys = [
-        'seq_length',  # qwen, chatglm
-        'max_position_embeddings',  # qwen1.5, llama2
-        'n_positions',  # polylm, phi-2
-        'model_max_length',  # baichuan2
-        # others
-        'seq_len',
-        'max_seq_len',
-        'max_sequence_length',
-        'max_seq_length',
-    ]
-    for key in possible_keys:
-        max_len_key = getattr(config, key, None)
-        if max_len_key is not None:
-            max_model_len = min(max_model_len, max_len_key)
-    if max_model_len == INF:
-        max_model_len = None
-
-    if (not ignore_rope_scaling and max_model_len and getattr(config, 'rope_scaling', None)
-            and config.rope_scaling.get('factor')):
-        max_model_len = max(int(max_model_len * config.rope_scaling.get('factor')), max_model_len)
-    return max_model_len
-
-
-def set_rope_scaling(config: PretrainedConfig, rope_scaling: Dict[str, Any]):
-    for k in ['language_config', 'llm_config', 'text_config']:
-        llm_config = getattr(config, k, None)
-        if llm_config is not None:
-            config = llm_config
-            break
-
-    if getattr(config, 'rope_scaling', None):
-        rope_scaling['factor'] = max(config.rope_scaling.get('factor', -1), rope_scaling['factor'])
-        rope_scaling = {**config.rope_scaling, **rope_scaling}
-    config.rope_scaling = rope_scaling
-
-
-def get_rope_scaling(config: PretrainedConfig):
-    for k in ['language_config', 'llm_config', 'text_config']:
-        llm_config = getattr(config, k, None)
-        if llm_config is not None:
-            config = llm_config
-            break
-
-    return getattr(config, 'rope_scaling')
 
 
 if is_ddp_plus_mp():

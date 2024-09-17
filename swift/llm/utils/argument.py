@@ -25,11 +25,11 @@ from swift.tuners import Swift
 from swift.utils import (add_version_to_work_dir, get_dist_setting, get_logger, get_pai_tensorboard_dir, is_dist,
                          is_local_master, is_mp, is_pai_training_job, use_torchacc)
 from .client_utils import get_model_list_client
-from .dataset import (DATASET_MAPPING, _dataset_name_exists, get_dataset, parse_dataset_name,
-                      register_dataset_info_file, sample_dataset)
-from .media import MediaTag
-from .model import (MODEL_MAPPING, dtype_mapping, get_additional_saved_files, get_default_lora_target_modules,
-                    get_default_template_type)
+from swift.llm.dataset.dataset import (DATASET_MAPPING, _dataset_name_exists, get_dataset, parse_dataset_name,
+                                       register_dataset_info_file, sample_dataset)
+from swift.llm.dataset.media import MediaTag
+from swift.llm.model.model import (MODEL_MAPPING, dtype_mapping, get_additional_saved_files, get_default_lora_target_modules,
+                                   get_default_template_type)
 from .template import TEMPLATE_MAPPING
 from .utils import is_liger_available, is_lmdeploy_available, is_quant_model, is_vllm_available
 
@@ -1794,27 +1794,6 @@ class WebuiArguments:
     lang: str = 'zh'
     host: str = '127.0.0.1'
     port: Optional[int] = None
-
-
-@dataclass
-class RomeArguments(InferArguments):
-    rome_request_file: str = field(
-        default=None, metadata={'help': 'The rome request file, please check the documentation '
-                                'to get the format'})
-
-    def __post_init__(self) -> None:
-        self.handle_compatibility()
-        self.handle_path()
-        self.set_model_type()
-        self.check_flash_attn()
-
-        self.torch_dtype, _, _ = self.select_dtype()
-        if self.template_type == 'AUTO':
-            self.template_type = get_default_template_type(self.model_type)
-            logger.info(f'Setting template_type: {self.template_type}')
-
-        if self.max_length == -1:
-            self.max_length = None
 
 
 dtype_mapping_reversed = {v: k for k, v in dtype_mapping.items()}

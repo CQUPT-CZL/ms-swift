@@ -1,20 +1,9 @@
 # Copyright (c) Alibaba, Inc. and its affiliates.
 from swift.utils import get_logger
 from .argument import (AppUIArguments, DeployArguments, EvalArguments, ExportArguments, InferArguments, PtArguments,
-                       RLHFArguments, RomeArguments, SftArguments, WebuiArguments, is_adapter, swift_to_peft_format)
+                       RLHFArguments, SftArguments, WebuiArguments, is_adapter, swift_to_peft_format)
 from .client_utils import (compat_openai, convert_to_base64, decode_base64, get_model_list_client,
                            get_model_list_client_async, inference_client, inference_client_async)
-from .dataset import (DATASET_MAPPING, DatasetName, HfDataset, get_dataset, get_dataset_from_repo,
-                      load_dataset_from_local, load_ms_dataset, register_dataset, register_dataset_info,
-                      register_local_dataset, sample_dataset, standard_keys)
-from .media import MediaCache, MediaTag
-from .model import (MODEL_MAPPING, GetModelTokenizerFunction, LoRATM, ModelType, get_additional_saved_files,
-                    get_default_lora_target_modules, get_default_template_type, get_model_tokenizer,
-                    get_model_tokenizer_from_repo, get_model_tokenizer_with_flash_attn, git_clone_github,
-                    register_model)
-from .preprocess import (AlpacaPreprocessor, ClsPreprocessor, ComposePreprocessor, ConversationsPreprocessor,
-                         PreprocessFunc, RenameColumnsPreprocessor, SmartPreprocessor, SwiftPreprocessor,
-                         TextGenerationPreprocessor, preprocess_sharegpt)
 from .protocol import (ChatCompletionMessageToolCall, ChatCompletionRequest, ChatCompletionResponse,
                        ChatCompletionResponseChoice, ChatCompletionResponseStreamChoice, ChatCompletionStreamResponse,
                        ChatMessage, CompletionRequest, CompletionResponse, CompletionResponseChoice,
@@ -23,10 +12,10 @@ from .protocol import (ChatCompletionMessageToolCall, ChatCompletionRequest, Cha
 from .template import (DEFAULT_SYSTEM, TEMPLATE_MAPPING, History, KTOTemplateMixin, Prompt, RLHFTemplateMixin,
                        StopWords, Template, TemplateType, get_env_args, get_template, register_template)
 from .utils import (LazyLLMDataset, LLMDataset, dataset_map, download_dataset, find_all_linears, find_embedding,
-                    find_ln, get_max_model_len, get_time_info, history_to_messages, inference, inference_stream,
+                    find_ln, get_time_info, history_to_messages, inference, inference_stream,
                     is_lmdeploy_available, is_megatron_available, is_quant_model, is_vllm_available,
                     limit_history_length, messages_join_observation, messages_to_history, print_example,
-                    safe_tokenizer_decode, set_generation_config, sort_by_max_length, stat_dataset, to_device)
+                    safe_tokenizer_decode, set_generation_config, sort_by_max_length, stat_dataset)
 
 logger = get_logger()
 
