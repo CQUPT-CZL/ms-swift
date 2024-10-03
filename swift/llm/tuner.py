@@ -328,6 +328,49 @@ def prepare_model(model, args: SftArguments):
         lisa_callback.switch_active_layers()  # Make trainable parameters printing a correct value
         callbacks.append(lisa_callback)
 
+    # add value head for reward model
+    if hasattr(args, 'rlhf_type') and args.rlhf_type == 'rm':
+        from trl import AutoModelForCausalLMWithValueHead
+        from transformers import PreTrainedModel
+        from types import MethodType
+        lm_head_namings = ['lm_head', 'embed_out']
+        if not any(hasattr(model, attribute) for attribute in lm_head_namings):
+            setattr(model, 'lm_head', None)  # avoid ValueError
+        model = AutoModelForCausalLMWithValueHead.from_pretrained(model)
+
+        def patch_valuehead_model(model):
+
+            attr_list = [
+                'get_input_embeddings', 'vis_processor', 'extract_feature', 'get_rope_index', 'model', 'vision_tower',
+                'img2emb', '_encode_image', '_merge_input_ids_with_image_features', 'prepare_inputs_embeds',
+                'build_conversation_input_ids', 'config', 'get_slice_image_placeholder', 'transform',
+                'get_vllm_embedding', 'forward_image', 'dtype'
+            ]
+
+            for attr in attr_list:
+                if hasattr(model.pretrained_model, attr) and not hasattr(model, attr):
+                    setattr(model, attr, getattr(model.pretrained_model, attr))
+
+        patch_valuehead_model(model)
+
+        # try to load local vhead weights
+        vhead_params = None
+        try:
+            from safetensors import safe_open
+            vhead_file = os.path.join(model.pretrained_model.model_dir, 'value_head.safetensors')
+            with safe_open(vhead_file, framework='pt', device='cpu') as f:
+                vhead_params = {key: f.get_tensor(key) for key in f.keys()}
+        except Exception:
+            pass
+        try:
+            vhead_file = os.path.join(model.pretrained_model.model_dir, 'value_head.bin')
+            vhead_params = torch.load(vhead_file, map_location='cpu')
+        except Exception:
+            pass
+        if vhead_params is not None:
+            model.load_state_dict(vhead_params, strict=False)
+            logger.info('Loading value head weights')
+
     if is_adapter(args.sft_type) and args.tuner_backend == 'swift':
         callbacks.append(TrainerAdapterCallback(args))
     return model, callbacks
